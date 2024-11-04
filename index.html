@@ -70,7 +70,7 @@
         button:hover {
             background-color: #0056b3;
         }
-        #billOutput {
+        #billOutputContainer {
             margin-top: 30px;
             padding: 20px;
             background-color: #f9f9f9;
@@ -137,8 +137,16 @@
             color: white;
         }
         @media print {
-            .billLogo {
-                display: none; /* Hide the logo when printing */
+            body * {
+                visibility: hidden; /* Hide everything */
+            }
+            .billSection, .billSection * {
+                visibility: visible; /* Show only the bill section */
+            }
+            .billSection {
+                position: absolute;
+                left: 0;
+                top: 0;
             }
         }
     </style>
@@ -171,7 +179,7 @@
         <textarea id="billingNotes" placeholder="Additional Notes or Terms"></textarea>
 
         <button id="generateBill">Generate Bill</button>
-        <div id="billOutput"></div>
+        <div id="billOutputContainer"></div>
         <button id="printBill" style="display:none;">Print Bill</button>
         <button id="downloadPdf" style="display:none;">Download PDF</button>
         <button id="toggleDarkMode">Toggle Dark Mode</button>
@@ -179,9 +187,9 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
-        const bills = JSON.parse(localStorage.getItem('bills')) || [];
+        const customerBills = JSON.parse(localStorage.getItem('customerBills')) || {};
         const itemsList = document.getElementById('itemsList');
-        const billOutput = document.getElementById('billOutput');
+        const billOutputContainer = document.getElementById('billOutputContainer');
         const printButton = document.getElementById('printBill');
         const downloadButton = document.getElementById('downloadPdf');
         const toggleDarkModeButton = document.getElementById('toggleDarkMode');
@@ -189,12 +197,30 @@
 
         document.addEventListener('DOMContentLoaded', loadBills);
 
+        document.getElementById('customerName').addEventListener('input', function() {
+            const customerName = this.value;
+            if (customerBills[customerName]) {
+                displayItems(customerName);
+            } else {
+                itemsList.innerHTML = '';
+                billOutputContainer.style.display = 'none';
+                printButton.style.display = 'none';
+                downloadButton.style.display = 'none';
+            }
+        });
+
         document.getElementById('addBill').addEventListener('click', () => {
+            const customerName = document.getElementById('customerName').value;
             const billName = document.getElementById('billName').value;
             const billAmount = parseFloat(document.getElementById('billAmount').value);
             const billQuantity = parseFloat(document.getElementById('billQuantity').value);
             const billDescription = document.getElementById('billDescription').value;
             const itemDiscount = parseFloat(document.getElementById('itemDiscount').value) || 0;
+
+            if (!customerName) {
+                alert("Please enter a customer name.");
+                return;
+            }
 
             if (billName && !isNaN(billAmount) && !isNaN(billQuantity) && billQuantity > 0) {
                 const totalBeforeDiscount = billAmount * billQuantity;
@@ -208,154 +234,39 @@
                     discount: itemDiscount,
                     total: totalAfterDiscount < 0 ? 0 : totalAfterDiscount // Prevent negative total
                 };
-                bills.push(bill);
-                localStorage.setItem('bills', JSON.stringify(bills)); // Save to local storage
-                displayItems();
+
+                // Add the bill to the customer's array
+                if (!customerBills[customerName]) {
+                    customerBills[customerName] = [];
+                }
+                customerBills[customerName].push(bill);
+                localStorage.setItem('customerBills', JSON.stringify(customerBills)); // Save to local storage
+                displayItems(customerName);
                 clearItemInputs();
-                printButton.style.display = 'inline';
-                billOutput.style.display = 'block';
             } else {
-                alert("Please enter valid item details.");
+                alert("Please fill in all required fields correctly.");
             }
         });
 
         function loadBills() {
-            if (bills.length > 0) {
-                displayItems();
+            const customerNameInput = document.getElementById('customerName');
+            const customerName = customerNameInput.value;
+            if (customerName && customerBills[customerName]) {
+                displayItems(customerName);
             }
         }
 
-        function displayItems() {
+        function displayItems(customerName) {
             itemsList.innerHTML = '';
+            const bills = customerBills[customerName] || [];
             bills.forEach((bill, index) => {
                 itemsList.innerHTML += `
                     <div class="itemRow">
-                        <div>${bill.name} (${bill.quantity}) - $${bill.total.toFixed(2)} (Discount: $${bill.discount.toFixed(2)})</div>
-                        <button class="removeButton" onclick="removeBill(${index})">Remove</button>
-                    </div>
-                `;
+                        <div>${bill.name} - $${bill.amount.toFixed(2)} x ${bill.quantity} = $${bill.total.toFixed(2)}<br>${bill.description || 'No description'}</div>
+                        <button class="removeButton" onclick="removeBill('${customerName}', ${index})">Remove</button>
+                    </div>`;
             });
         }
-
-        function removeBill(index) {
-            bills.splice(index, 1);
-            localStorage.setItem('bills', JSON.stringify(bills)); // Update local storage
-            displayItems();
-        }
-
-        document.getElementById('generateBill').addEventListener('click', () => {
-            const customerName = document.getElementById('customerName').value;
-            const customerAddress = document.getElementById('customerAddress').value;
-            const customerContact = document.getElementById('customerContact').value;
-            const billingDate = document.getElementById('billDate').value;
-            const billingNotes = document.getElementById('billingNotes').value;
-            const taxPercentage = parseFloat(document.getElementById('tax').value) || 0;
-
-            const subtotal = bills.reduce((sum, bill) => sum + bill.total, 0);
-            const taxAmount = (subtotal * (taxPercentage / 100));
-            const finalAmount = subtotal + taxAmount;
-
-            billOutput.innerHTML = `
-                <h2>Invoice</h2>
-                <p><strong>Customer Name:</strong> ${customerName}</p>
-                <p><strong>Customer Address:</strong> ${customerAddress}</p>
-                <p><strong>Contact:</strong> ${customerContact}</p>
-                <p><strong>Date:</strong> ${billingDate || new Date().toLocaleDateString()}</p>
-                <p><strong>Notes:</strong> ${billingNotes || 'N/A'}</p>
-                <table class="billTable">
-                    <tr>
-                        <th>Item</th>
-                        <th>Description</th>
-                        <th>Quantity</th>
-                        <th>Amount</th>
-                    </tr>
-            `;
-
-            bills.forEach(bill => {
-                billOutput.innerHTML += `
-                    <tr>
-                        <td>${bill.name}</td>
-                        <td>${bill.description || 'N/A'}</td>
-                        <td>${bill.quantity}</td>
-                        <td>$${bill.total.toFixed(2)}</td>
-                    </tr>
-                `;
-            });
-
-            billOutput.innerHTML += `
-                <tr class="totalRow">
-                    <td colspan="3" style="text-align:right;">Subtotal:</td>
-                    <td>$${subtotal.toFixed(2)}</td>
-                </tr>
-                <tr class="totalRow">
-                    <td colspan="3" style="text-align:right;">Tax (${taxPercentage}%):</td>
-                    <td>$${taxAmount.toFixed(2)}</td>
-                </tr>
-                <tr class="totalRow">
-                    <td colspan="3" style="text-align:right;">Total:</td>
-                    <td>$${finalAmount.toFixed(2)}</td>
-                </tr>
-                </table>
-            `;
-            printButton.style.display = 'inline';
-            downloadButton.style.display = 'inline';
-        });
-
-        printButton.addEventListener('click', () => {
-            const printWindow = window.open('', '', 'height=600,width=800');
-            printWindow.document.write('<html><head><title>Print Invoice</title>');
-            printWindow.document.write('</head><body>');
-            printWindow.document.write('<h2>Invoice</h2>');
-            printWindow.document.write('<p><strong>Customer Name:</strong> ' + document.getElementById('customerName').value + '</p>');
-            printWindow.document.write('<p><strong>Customer Address:</strong> ' + document.getElementById('customerAddress').value + '</p>');
-            printWindow.document.write('<p><strong>Contact:</strong> ' + document.getElementById('customerContact').value + '</p>');
-            printWindow.document.write('<p><strong>Date:</strong> ' + (document.getElementById('billDate').value || new Date().toLocaleDateString()) + '</p>');
-            printWindow.document.write('<p><strong>Notes:</strong> ' + (document.getElementById('billingNotes').value || 'N/A') + '</p>');
-            printWindow.document.write('<table class="billTable" style="width: 100%; border-collapse: collapse; margin-top: 15px;">');
-            printWindow.document.write('<tr><th style="border: 1px solid #ccc; padding: 10px; background-color: #007bff; color: white;">Item</th><th style="border: 1px solid #ccc; padding: 10px; background-color: #007bff; color: white;">Description</th><th style="border: 1px solid #ccc; padding: 10px; background-color: #007bff; color: white;">Quantity</th><th style="border: 1px solid #ccc; padding: 10px; background-color: #007bff; color: white;">Amount</th></tr>');
-
-            bills.forEach(bill => {
-                printWindow.document.write(`
-                    <tr>
-                        <td style="border: 1px solid #ccc; padding: 10px;">${bill.name}</td>
-                        <td style="border: 1px solid #ccc; padding: 10px;">${bill.description || 'N/A'}</td>
-                        <td style="border: 1px solid #ccc; padding: 10px;">${bill.quantity}</td>
-                        <td style="border: 1px solid #ccc; padding: 10px;">$${bill.total.toFixed(2)}</td>
-                    </tr>
-                `);
-            });
-
-            printWindow.document.write(`
-                <tr style="font-weight: bold; background-color: #e2e2e2;">
-                    <td colspan="3" style="text-align:right; border: 1px solid #ccc; padding: 10px;">Subtotal:</td>
-                    <td style="border: 1px solid #ccc; padding: 10px;">$${bills.reduce((sum, bill) => sum + bill.total, 0).toFixed(2)}</td>
-                </tr>
-                <tr style="font-weight: bold; background-color: #e2e2e2;">
-                    <td colspan="3" style="text-align:right; border: 1px solid #ccc; padding: 10px;">Tax (${document.getElementById('tax').value}%):</td>
-                    <td style="border: 1px solid #ccc; padding: 10px;">$${(bills.reduce((sum, bill) => sum + bill.total, 0) * (parseFloat(document.getElementById('tax').value) / 100)).toFixed(2)}</td>
-                </tr>
-                <tr style="font-weight: bold; background-color: #e2e2e2;">
-                    <td colspan="3" style="text-align:right; border: 1px solid #ccc; padding: 10px;">Total:</td>
-                    <td style="border: 1px solid #ccc; padding: 10px;">$${(bills.reduce((sum, bill) => sum + bill.total, 0) + (bills.reduce((sum, bill) => sum + bill.total, 0) * (parseFloat(document.getElementById('tax').value) / 100))).toFixed(2)}</td>
-                </tr>
-            `);
-            printWindow.document.write('</table>');
-            printWindow.document.write('</body></html>');
-            printWindow.document.close();
-            printWindow.print();
-        });
-
-        downloadButton.addEventListener('click', () => {
-            const element = document.createElement('div');
-            element.innerHTML = billOutput.innerHTML;
-            element.querySelector('.billTable').style.display = 'block'; // Make table visible for PDF
-            html2pdf().from(element).save('invoice.pdf');
-        });
-
-        toggleDarkModeButton.addEventListener('click', () => {
-            isDarkMode = !isDarkMode;
-            document.body.classList.toggle('dark-mode', isDarkMode);
-        });
 
         function clearItemInputs() {
             document.getElementById('billName').value = '';
@@ -364,6 +275,121 @@
             document.getElementById('itemDiscount').value = '';
             document.getElementById('billDescription').value = '';
         }
+
+        function removeBill(customerName, index) {
+            if (confirm("Are you sure you want to remove this item?")) {
+                customerBills[customerName].splice(index, 1);
+                if (customerBills[customerName].length === 0) {
+                    delete customerBills[customerName]; // Remove customer if no bills left
+                }
+                localStorage.setItem('customerBills', JSON.stringify(customerBills));
+                displayItems(customerName);
+            }
+        }
+
+        document.getElementById('generateBill').addEventListener('click', () => {
+            const customerName = document.getElementById('customerName').value;
+            const customerAddress = document.getElementById('customerAddress').value;
+            const customerContact = document.getElementById('customerContact').value;
+            const tax = parseFloat(document.getElementById('tax').value) || 0;
+            const billDate = document.getElementById('billDate').value;
+            const billingNotes = document.getElementById('billingNotes').value;
+
+            if (!customerName) {
+                alert("Please enter a customer name.");
+                return;
+            }
+
+            const bills = customerBills[customerName] || [];
+            let totalAmount = 0;
+
+            let billHTML = `
+                <div class="billSection" id="bill_${customerName.replace(/\s+/g, '_')}_${Date.now()}">
+                    <h2>Bill for ${customerName}</h2>
+                    <p>Address: ${customerAddress}</p>
+                    <p>Contact: ${customerContact}</p>
+                    <p>Date: ${billDate || new Date().toLocaleDateString()}</p>
+                    <h3>Items:</h3>
+                    <table class="billTable">
+                        <tr>
+                            <th>Item</th>
+                            <th>Quantity</th>
+                            <th>Amount</th>
+                            <th>Total</th>
+                        </tr>`;
+
+            bills.forEach(bill => {
+                billHTML += `
+                    <tr>
+                        <td>${bill.name}</td>
+                        <td>${bill.quantity}</td>
+                        <td>$${bill.amount.toFixed(2)}</td>
+                        <td>$${bill.total.toFixed(2)}</td>
+                    </tr>`;
+                totalAmount += bill.total;
+            });
+
+            // Apply tax
+            if (tax > 0) {
+                const taxAmount = (totalAmount * tax) / 100;
+                totalAmount += taxAmount;
+                billHTML += `
+                    <tr>
+                        <td colspan="3">Tax (${tax}%)</td>
+                        <td>$${taxAmount.toFixed(2)}</td>
+                    </tr>`;
+            }
+
+            billHTML += `
+                <tr class="totalRow">
+                    <td colspan="3">Total Amount</td>
+                    <td>$${totalAmount.toFixed(2)}</td>
+                </tr>
+            </table>
+            <h3>Notes:</h3>
+            <p>${billingNotes || "No additional notes."}</p>
+            </div>`;
+
+            const billOutputDiv = document.createElement('div');
+            billOutputDiv.innerHTML = billHTML;
+            billOutputDiv.style.marginTop = '20px';
+            billOutputDiv.style.padding = '10px';
+            billOutputDiv.style.border = '1px solid #ccc';
+            billOutputDiv.style.borderRadius = '5px';
+            billOutputDiv.style.backgroundColor = '#f9f9f9';
+            billOutputContainer.appendChild(billOutputDiv);
+            billOutputContainer.style.display = 'block';
+            printButton.style.display = 'inline';
+            downloadButton.style.display = 'inline';
+
+            // Create a print-specific function
+            printButton.onclick = () => {
+                const newWin = window.open('', 'Print-Window');
+                newWin.document.write(`<html><head><title>${customerName} Bill</title>`);
+                newWin.document.write('</head><body>');
+                newWin.document.write(billOutputDiv.innerHTML);
+                newWin.document.write('</body></html>');
+                newWin.document.close();
+                newWin.print();
+                newWin.close();
+            };
+        });
+
+        downloadButton.addEventListener('click', () => {
+            const billOutputDivs = billOutputContainer.children;
+            const pdfPromises = Array.from(billOutputDivs).map(div => html2pdf().from(div).toPdf().get('pdf'));
+            Promise.all(pdfPromises).then(pdfs => {
+                pdfs.forEach((pdf, index) => {
+                    pdf.save(`bill_${index + 1}.pdf`);
+                });
+            });
+        });
+
+        toggleDarkModeButton.addEventListener('click', () => {
+            isDarkMode = !isDarkMode;
+            document.body.classList.toggle('dark-mode', isDarkMode);
+            toggleDarkModeButton.innerText = isDarkMode ? "Light Mode" : "Dark Mode";
+        });
     </script>
 </body>
 </html>
